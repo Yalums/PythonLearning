@@ -70,6 +70,18 @@ class ScheduleManager(QtWidgets.QMainWindow):
         self.import_sqlite_btn.setGeometry(680, 470, 200, 40)
         self.import_sqlite_btn.clicked.connect(self.import_from_sqlite)
 
+        self.import_sqlite_btn = QtWidgets.QPushButton("导入学生数据", self)
+        self.import_sqlite_btn.setGeometry(890, 470, 160, 40)
+        self.import_sqlite_btn.clicked.connect(self.import_from_sqlite)
+
+        self.import_sqlite_btn = QtWidgets.QPushButton("导入课程数据", self)
+        self.import_sqlite_btn.setGeometry(890, 520, 160, 40)
+        self.import_sqlite_btn.clicked.connect(self.import_from_sqlite)
+
+        self.import_sqlite_btn = QtWidgets.QPushButton("导出为Excel表格", self)
+        self.import_sqlite_btn.setGeometry(890, 570, 160, 40)
+        self.import_sqlite_btn.clicked.connect(self.export_to_excel)
+
         self.add_row_btn = QtWidgets.QPushButton("添加新行", self)
         self.add_row_btn.setGeometry(50, 520, 200, 40)
         self.add_row_btn.clicked.connect(self.add_new_row)
@@ -103,9 +115,23 @@ class ScheduleManager(QtWidgets.QMainWindow):
         self.week_combobox.setGeometry(470, 620, 200, 30)
         self.load_week_combobox()
 
+        self.student_label = QLabel("选择学生:", self)
+        self.student_label.setGeometry(690, 620, 100, 30)
+        self.student_combobox = QComboBox(self)
+        self.student_combobox.setGeometry(790, 620, 200, 30)
+        self.load_student_combobox()
+
         self.plot_btn = QtWidgets.QPushButton("统计上课频次", self)
         self.plot_btn.setGeometry(50, 570, 200, 40)
         self.plot_btn.clicked.connect(self.plot_class_frequency)
+
+        self.export_student_btn = QtWidgets.QPushButton("导出学生课程安排", self)
+        self.export_student_btn.setGeometry(260, 570, 200, 40)
+        self.export_student_btn.clicked.connect(self.export_student_schedule)
+
+        self.export_class_btn = QtWidgets.QPushButton("导出班级统计信息", self)
+        self.export_class_btn.setGeometry(470, 570, 200, 40)
+        self.export_class_btn.clicked.connect(self.export_class_statistics)
 
     def count_classes_per_weekday(self):
         selected_class = self.class_combobox.currentText()
@@ -166,6 +192,89 @@ class ScheduleManager(QtWidgets.QMainWindow):
         weeks = [f"第{week}周" for week in range(1, 18)]
         self.week_combobox.addItems(weeks)
 
+    def load_student_combobox(self):
+        cursor = self.db_connection.cursor()
+        cursor.execute("SELECT student_name FROM students")
+        students = [row[0] for row in cursor.fetchall()]
+        self.student_combobox.addItems(students)
+
+    def export_student_schedule(self):
+        selected_student = self.student_combobox.currentText()
+        cursor = self.db_connection.cursor()
+        cursor.execute("SELECT * FROM schedule WHERE student_name = ?", (selected_student,))
+        rows = cursor.fetchall()
+
+        if not rows:
+            QMessageBox.information(self, "提示", "没有找到该学生的课程安排")
+            return
+
+        data = {
+            '学生姓名': [],
+            '课程名称': [],
+            '学分': [],
+            '星期': [],
+            '行课时间': [],
+            '教室': []
+        }
+
+        for row in rows:
+            data['学生姓名'].append(row[1])
+            data['课程名称'].append(row[2])
+            data['学分'].append(row[3])
+            data['星期'].append(row[4])
+            data['行课时间'].append(row[5])
+            data['教室'].append(row[6])
+
+        df = pd.DataFrame(data)
+        file_name, _ = QFileDialog.getSaveFileName(self, "导出课程安排", "", "Excel Files (*.xlsx);;All Files (*)")
+        
+        if file_name:
+            if not file_name.endswith('.xlsx'):
+                file_name += '.xlsx'
+            df.to_excel(file_name, index=False)
+            QMessageBox.information(self, "成功", "课程安排已成功导出")
+
+    def export_class_statistics(self):
+        selected_class = self.class_combobox.currentText()
+        cursor = self.db_connection.cursor()
+        cursor.execute("""
+            SELECT s.student_name, s.course_name, s.credit, s.weekday, s.time_slot, s.classroom
+            FROM schedule s
+            JOIN students st ON s.student_name = st.student_name
+            WHERE st.class_name = ?
+        """, (selected_class,))
+        rows = cursor.fetchall()
+
+        if not rows:
+            QMessageBox.information(self, "提示", "没有找到该班级的统计信息")
+            return
+
+        data = {
+            '学生姓名': [],
+            '课程名称': [],
+            '学分': [],
+            '星期': [],
+            '行课时间': [],
+            '教室': []
+        }
+
+        for row in rows:
+            data['学生姓名'].append(row[0])
+            data['课程名称'].append(row[1])
+            data['学分'].append(row[2])
+            data['星期'].append(row[3])
+            data['行课时间'].append(row[4])
+            data['教室'].append(row[5])
+
+        df = pd.DataFrame(data)
+        file_name, _ = QFileDialog.getSaveFileName(self, "导出统计信息", "", "Excel Files (*.xlsx);;All Files (*)")
+        
+        if file_name:
+            if not file_name.endswith('.xlsx'):
+                file_name += '.xlsx'
+            df.to_excel(file_name, index=False)
+            QMessageBox.information(self, "成功", "班级统计信息已成功导出")
+
     def auto_schedule(self):
         """自动排课"""
         try:
@@ -209,12 +318,17 @@ class ScheduleManager(QtWidgets.QMainWindow):
             print("生成排课数据...")
             schedule = []
             try:
+                import random
+                building_numbers = [1, 2, 4]  # 可选的教学楼号
+                
                 for student in students:
                     for course_name, credit in courses:
-                        # 随机分配时间段和教室
                         weekday = self.weekdays[len(schedule) % len(self.weekdays)]
                         time_slot = self.time_slots[len(schedule) % len(self.time_slots)]
-                        classroom = f"H{101 + len(schedule) % 10}"
+                        
+                        # 生成四位教室号：H + 教学楼号(1/2/4) + 两位房间号(01-20)
+                        building = random.choice(building_numbers)
+                        room_number = f"H{building}{random.randint(1, 20):02d}"
 
                         schedule.append((
                             student,
@@ -222,11 +336,12 @@ class ScheduleManager(QtWidgets.QMainWindow):
                             credit,
                             weekday,
                             time_slot,
-                            classroom
+                            room_number
                         ))
                 print(f"生成了 {len(schedule)} 条排课记录")
             except Exception as e:
                 raise Exception(f"生成排课数据失败: {str(e)}")
+
 
             # 批量插入数据
             print("插入排课数据到数据库...")
@@ -341,7 +456,7 @@ class ScheduleManager(QtWidgets.QMainWindow):
             self.status_label.setStyleSheet("color: blue;")
 
     def update_student_course_data(self):
-        """更新学生和课程数据，只更新下拉菜单选项"""
+        """更新学生和课程数据，并更新选择学生下拉菜单"""
         # 获取最新的学生和课程列表
         cursor = self.db_connection.cursor()
         
@@ -352,6 +467,10 @@ class ScheduleManager(QtWidgets.QMainWindow):
         # 更新课程列表
         cursor.execute("SELECT course_name FROM courses")
         self.course_list = [row[0] for row in cursor.fetchall()]
+        
+        # 更新选择学生的下拉菜单
+        self.student_combobox.clear()
+        self.student_combobox.addItems(self.student_list)
         
         # 只更新现有行的下拉菜单选项，不改变已选择的值
         for row in range(self.table_widget.rowCount()):
@@ -379,37 +498,36 @@ class ScheduleManager(QtWidgets.QMainWindow):
             # 收集表格数据
             data = {
                 '学生姓名': [],
+                '班级': [],
                 '课程名称': [],
                 '学分': [],
+                '星期': [],
                 '行课时间': [],
+                '周数': [],
                 '教室': []
             }
             
             # 从表格中获取数据
             for row in range(self.table_widget.rowCount()):
-                # 获取学生姓名
-                student_combo = self.table_widget.cellWidget(row, 0)
-                data['学生姓名'].append(student_combo.currentText() if student_combo else '')
-                
-                # 获取课程名称
-                course_combo = self.table_widget.cellWidget(row, 1)
-                data['课程名称'].append(course_combo.currentText() if course_combo else '')
-                
-                # 获取学分
-                credit_edit = self.table_widget.cellWidget(row, 2)
-                data['学分'].append(credit_edit.text() if credit_edit else '')
-                
-                # 获取行课时间
-                time_combo = self.table_widget.cellWidget(row, 3)
-                data['行课时间'].append(time_combo.currentText() if time_combo else '')
-                
-                # 获取教室
-                classroom_edit = self.table_widget.cellWidget(row, 4)
-                classroom = classroom_edit.text() if classroom_edit else ''
-                # 移除'H'前缀用于导出
-                if classroom.startswith('H'):
-                    classroom = classroom[1:]
-                data['教室'].append(classroom)
+                # 获取各列的数据，根据控件类型使用不同的方法获取值
+                student_widget = self.table_widget.cellWidget(row, 0)
+                class_widget = self.table_widget.cellWidget(row, 1)
+                course_widget = self.table_widget.cellWidget(row, 2)
+                credit_widget = self.table_widget.cellWidget(row, 3)
+                weekday_widget = self.table_widget.cellWidget(row, 4)
+                time_widget = self.table_widget.cellWidget(row, 5)
+                semester_widget = self.table_widget.cellWidget(row, 6)
+                classroom_widget = self.table_widget.cellWidget(row, 7)
+
+                # 根据控件类型获取值
+                data['学生姓名'].append(student_widget.currentText() if isinstance(student_widget, QComboBox) else "")
+                data['班级'].append(class_widget.text() if isinstance(class_widget, QLineEdit) else "")
+                data['课程名称'].append(course_widget.currentText() if isinstance(course_widget, QComboBox) else "")
+                data['学分'].append(credit_widget.text() if isinstance(credit_widget, QLineEdit) else "")
+                data['星期'].append(weekday_widget.currentText() if isinstance(weekday_widget, QComboBox) else "")
+                data['行课时间'].append(time_widget.currentText() if isinstance(time_widget, QComboBox) else "")
+                data['周数'].append(semester_widget.text() if isinstance(semester_widget, QLineEdit) else "")
+                data['教室'].append(classroom_widget.text() if isinstance(classroom_widget, QLineEdit) else "")
             
             # 创建DataFrame
             df = pd.DataFrame(data)
@@ -434,7 +552,12 @@ class ScheduleManager(QtWidgets.QMainWindow):
                 QMessageBox.information(self, "成功", "课表已成功导出")
                 
         except Exception as e:
-            QMessageBox.critical(self, "错误", f"导出失败: {str(e)}")
+            error_msg = f"导出失败: {str(e)}"
+            print(error_msg)  # 打印错误信息到控制台
+            QMessageBox.critical(self, "错误", error_msg)
+            # 打印详细的错误堆栈
+            import traceback
+            traceback.print_exc()
 
     def connect_to_database(self):
         """初始化数据库连接并创建必要的表"""
@@ -607,11 +730,14 @@ class ScheduleManager(QtWidgets.QMainWindow):
                     line_edit = QLineEdit(str(data))
                     line_edit.setReadOnly(True)
                     self.table_widget.setCellWidget(row_position, column, line_edit)
-                elif column == 7:  # 教室
+                elif column == 7:  # 教室列
                     line_edit = QLineEdit(str(data))
-                    line_edit.setValidator(QIntValidator(0, 9999))
+                    # 创建自定义的验证器，允许后缀
+                    validator = QtGui.QRegExpValidator(QtCore.QRegExp(r"H?[124]\d{2}[1-9]"))
+                    line_edit.setValidator(validator)
                     line_edit.editingFinished.connect(lambda le=line_edit: self.add_classroom_prefix(le))
                     self.table_widget.setCellWidget(row_position, column, line_edit)
+
 
     def update_student_class(self, student_name, combo):
         """更新学生班级信息"""
@@ -684,10 +810,42 @@ class ScheduleManager(QtWidgets.QMainWindow):
         return combo
 
     def add_classroom_prefix(self, line_edit):
-        """为教室号添加H前缀"""
-        text = line_edit.text()
-        if text and not text.startswith('H'):
-            line_edit.setText(f'H{text}')
+        """为教室号添加H前缀并确保格式正确"""
+        text = line_edit.text().strip()
+        if not text:
+            return
+            
+        # 移除现有的H前缀（如果有）
+        if text.startswith('H'):
+            text = text[1:]
+        
+        try:
+            # 确保输入的是4位数字（3位房间号+1位后缀）
+            number = int(text)
+            if 1000 <= number <= 4209:  # 允许的范围：1000-4209
+                building = int(text[0])
+                room = int(text[1:3])
+                suffix = int(text[3])
+                
+                if building in [1, 2, 4] and room <= 20 and 1 <= suffix <= 9:
+                    formatted_text = f"H{building}{room:02d}{suffix}"
+                    line_edit.setText(formatted_text)
+                else:
+                    if building not in [1, 2, 4]:
+                        QMessageBox.warning(self, "警告", "教学楼号必须是1、2或4")
+                    elif room > 20:
+                        QMessageBox.warning(self, "警告", "房间号必须是01-20之间")
+                    elif suffix < 1 or suffix > 9:
+                        QMessageBox.warning(self, "警告", "后缀必须是1-9之间")
+                    line_edit.setText("")
+            else:
+                line_edit.setText("")
+                QMessageBox.warning(self, "警告", "请输入有效的教室号（例如：H1011）")
+        except ValueError:
+            line_edit.setText("")
+            QMessageBox.warning(self, "警告", "请输入有效的教室号（例如：H1011）")
+
+
 
     def add_new_row(self):
         row_position = self.table_widget.rowCount()
@@ -714,14 +872,16 @@ class ScheduleManager(QtWidgets.QMainWindow):
             elif column == 5:  # 时间段列
                 combo = self.create_time_slot_combobox()
                 self.table_widget.setCellWidget(row_position, column, combo)
-            elif column == 7:  # 教室列 - 注意这里改为7
-                line_edit = QLineEdit()
-                line_edit.setValidator(QIntValidator(0, 9999))  # 限制只能输入数字
-                line_edit.editingFinished.connect(lambda le=line_edit: self.add_classroom_prefix(le))
-                self.table_widget.setCellWidget(row_position, column, line_edit)
             elif column == 6:  # 周数列 - 注意这里改为6
                 line_edit = QLineEdit()
                 line_edit.setReadOnly(True)
+                self.table_widget.setCellWidget(row_position, column, line_edit)
+            elif column == 7:  # 教室列
+                line_edit = QLineEdit()
+                # 创建自定义的验证器，允许后缀
+                validator = QtGui.QRegExpValidator(QtCore.QRegExp(r"H?[124]\d{2}[1-9]"))
+                line_edit.setValidator(validator)
+                line_edit.editingFinished.connect(lambda le=line_edit: self.add_classroom_prefix(le))
                 self.table_widget.setCellWidget(row_position, column, line_edit)
 
 
@@ -1037,13 +1197,13 @@ class StudentManager(QtWidgets.QDialog):
 
     def initUI(self):
         self.setWindowTitle("学生管理")
-        self.setGeometry(200, 200, 600, 400)
+        self.setGeometry(200, 200, 510, 400)
 
         layout = QVBoxLayout()
 
         self.student_table = QTableWidget()
-        self.student_table.setColumnCount(2)
-        self.student_table.setHorizontalHeaderLabels(['学生姓名', '班级'])
+        self.student_table.setColumnCount(3)
+        self.student_table.setHorizontalHeaderLabels(['学生姓名', '班级','学号'])
         layout.addWidget(self.student_table)
 
         button_layout = QHBoxLayout()
@@ -1143,7 +1303,7 @@ class CourseManager(QtWidgets.QDialog):
 
     def initUI(self):
         self.setWindowTitle("课程管理")
-        self.setGeometry(200, 200, 800, 400)
+        self.setGeometry(200, 200, 520, 400)
 
         layout = QVBoxLayout()
 
