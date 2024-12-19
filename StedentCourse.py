@@ -342,6 +342,7 @@ class ScheduleManager(QtWidgets.QMainWindow):
                     self.table_widget.setItem(row_position, column, QTableWidgetItem(str(data)))
         self.init_btn.setText("导出课表")
 
+
     def create_course_combobox(self, current_text=""):
         combo = QComboBox()
         combo.addItems(self.course_list)
@@ -495,7 +496,7 @@ class ScheduleManager(QtWidgets.QMainWindow):
             self.template_btn.setText("导出课表")
         else:
             self.template_btn.setText("生成课表模板")
-        
+
     def save_to_database(self):
         """Save current table data to database"""
         try:
@@ -506,20 +507,39 @@ class ScheduleManager(QtWidgets.QMainWindow):
             
             # Save each row
             for row in range(self.table_widget.rowCount()):
-                # Get student name
-                student_name = self.table_widget.cellWidget(row, 0).currentText()
+                # Get student name from combobox
+                student_widget = self.table_widget.cellWidget(row, 0)
+                if not student_widget:
+                    continue  # Skip this row if no student widget
+                student_name = student_widget.currentText()
                 
                 # Get course name from combobox
-                course_name = self.table_widget.cellWidget(row, 1).currentText()
+                course_widget = self.table_widget.cellWidget(row, 1)
+                if not course_widget:
+                    continue  # Skip this row if no course widget
+                course_name = course_widget.currentText()
                 
                 # Get credit from line edit
-                credit = self.table_widget.cellWidget(row, 2).text()
+                credit_widget = self.table_widget.cellWidget(row, 2)
+                if not credit_widget:
+                    continue  # Skip this row if no credit widget
+                credit = credit_widget.text()
                 
                 # Get time slot from combobox
-                time_slot = self.table_widget.cellWidget(row, 3).currentText()
+                time_widget = self.table_widget.cellWidget(row, 3)
+                if not time_widget:
+                    continue  # Skip this row if no time widget
+                time_slot = time_widget.currentText()
                 
                 # Get classroom from line edit
-                classroom = self.table_widget.cellWidget(row, 4).text()
+                classroom_widget = self.table_widget.cellWidget(row, 4)
+                if not classroom_widget:
+                    continue  # Skip this row if no classroom widget
+                classroom = classroom_widget.text()
+                
+                # Skip empty rows
+                if not all([student_name, course_name, credit, time_slot, classroom]):
+                    continue
                 
                 # Insert into database
                 cursor.execute("""
@@ -531,8 +551,9 @@ class ScheduleManager(QtWidgets.QMainWindow):
             return True
         except Exception as e:
             print(f"保存到数据库失败: {str(e)}")
+            self.db_connection.rollback()
             return False
-    
+
     def import_from_sqlite(self):
         options = QFileDialog.Options()
         file_name, _ = QFileDialog.getOpenFileName(self, "从 SQLite 文件导入", "", "SQLite Files (*.db);;All Files (*)", options=options)
@@ -873,6 +894,7 @@ class CourseManager(QtWidgets.QDialog):
                     QMessageBox.information(self, "成功", "课程删除成功")
                 except Exception as e:
                     QMessageBox.critical(self, "错误", f"删除失败: {str(e)}")
+
 class SelectCourseDialog(QDialog):
     def __init__(self, course_list, parent=None):
         super().__init__(parent)
@@ -946,153 +968,6 @@ class SelectCourseDialog(QDialog):
         self.selected_course = item.text()
         self.accept()
 
-# 使用这个对话框类到 CourseManager 中
-class CourseManager(QtWidgets.QDialog):
-    course_updated = pyqtSignal()
-
-    def __init__(self, db_connection, parent=None):
-        super().__init__(parent)
-        self.db_connection = db_connection
-        self.parent = parent
-        self.initUI()
-        self.load_courses()
-
-    def initUI(self):
-        self.setWindowTitle("课程管理")
-        self.setGeometry(200, 200, 800, 400)
-
-        layout = QVBoxLayout()
-
-        self.course_table = QTableWidget()
-        self.course_table.setColumnCount(3)
-        self.course_table.setHorizontalHeaderLabels(['课程名称', '学分', '周数'])
-        layout.addWidget(self.course_table)
-
-        button_layout = QHBoxLayout()
-        
-        self.add_btn = QPushButton("添加课程")
-        self.add_btn.clicked.connect(self.add_course)
-        button_layout.addWidget(self.add_btn)
-
-        self.edit_btn = QPushButton("编辑课程")
-        self.edit_btn.clicked.connect(self.edit_course)
-        button_layout.addWidget(self.edit_btn)
-
-        self.delete_btn = QPushButton("删除课程")
-        self.delete_btn.clicked.connect(self.delete_course)
-        button_layout.addWidget(self.delete_btn)
-
-        layout.addLayout(button_layout)
-        self.setLayout(layout)
-
-    def load_courses(self):
-        cursor = self.db_connection.cursor()
-        cursor.execute("SELECT course_name, credit, semester FROM courses")
-        courses = cursor.fetchall()
-
-        self.course_table.setRowCount(len(courses))
-        for row, course in enumerate(courses):
-            for col, value in enumerate(course):
-                item = QTableWidgetItem(str(value))
-                self.course_table.setItem(row, col, item)
-
-    def add_course(self):
-        course_list = [
-            "高等数学", "线性代数", "大学物理", "大学物理实验", "工程数学", "大学物理", 
-            "大学物理实验", "概率论与数理统计", "工程导论", "c语言编程与实践", "电路分析基础", 
-            "工程实践", "金工实习", "工程制图", "模拟电子技术", "运筹学", "数字电路与逻辑设计", 
-            "信号与系统", "自动控制原理", "电子系统设计与实现", "微处理器与微计算机系统", 
-            "传感器与检测技术", "现代控制理论", "面向对象程序设计(C++)", "机械学基础", 
-            "机器人操作系统基础", "机器人系统软件设计", "机器人学基础", "人工智能", 
-            "机器人设计与实现", "Python编程技术", "系统仿真编程技术", "嵌入式系统原理与设计", 
-            "图像处理与机器视觉", "模式识别与机器学习", "无人驾驶技术", "三维建模及仿真", 
-            "机器人控制元件与控制系", "移动机器人定位与导航", "思想道德与法治", "中国近现代史纲要", 
-            "形势与政策", "马克思主义基本原理", "毛泽东思想和中国特色社会", 
-            "义理论体系概论", "习近平新时代中国特色社会主义思想概论", "大学英语", 
-            "创新创业教育基础", "TRIZ创新方法", "创业培训", "创新、发明与知识产权实践"
-        ]
-    
-        dialog = SelectCourseDialog(course_list)
-        if dialog.exec_() == QDialog.Accepted:
-            selected_course = dialog.selected_course
-            if selected_course:
-                credit, ok = QInputDialog.getDouble(
-                    self,           # parent
-                    "添加课程",      # title
-                    "请输入学分:",   # label
-                    0,             # default value
-                    0,             # minimum value
-                    100,           # maximum value
-                    1,             # decimals (整数)
-                    Qt.WindowFlags(),  # flags
-                    0.5            # step
-                )
-                if ok:
-                    semester, ok = QInputDialog.getText(self, "添加课程", "请输入周数:")
-                    if ok:
-                        # 移除可能存在的"周"字后再保存
-                        semester = semester.rstrip('周')
-                        try:
-                            cursor = self.db_connection.cursor()
-                            cursor.execute("""
-                                INSERT INTO courses (course_name, credit, semester)
-                                VALUES (?, ?, ?)
-                            """, (selected_course, credit, semester))
-                            self.db_connection.commit()
-                            self.load_courses()
-                            self.course_updated.emit()
-                            QMessageBox.information(self, "成功", "课程添加成功")
-                        except sqlite3.IntegrityError:
-                            QMessageBox.warning(self, "错误", "该课程已存在")
-                        except Exception as e:
-                            QMessageBox.critical(self, "错误", f"添加失败: {str(e)}")
-
-    def edit_course(self):
-        current_row = self.course_table.currentRow()
-        if current_row >= 0:
-            old_name = self.course_table.item(current_row, 0).text()
-            old_credit = float(self.course_table.item(current_row, 1).text())
-            old_semester = self.course_table.item(current_row, 2).text()
-
-            name, ok = QInputDialog.getText(self, "编辑课程", "请输入新的课程名称:", text=old_name)
-            if ok and name:
-                credit, ok = QInputDialog.getDouble(self, "编辑课程", "请输入新的学分:", old_credit, 0, 100, 1)
-                if ok:
-                    semester, ok = QInputDialog.getText(self, "编辑课程", "请输入持续周数:", text=old_semester)
-                    if ok:
-                        try:
-                            cursor = self.db_connection.cursor()
-                            cursor.execute("""
-                                UPDATE courses 
-                                SET course_name = ?, credit = ?, semester = ?
-                                WHERE course_name = ?
-                            """, (name, credit, semester, old_name))
-                            self.db_connection.commit()
-                            self.load_courses()
-                            self.course_updated.emit()
-                            QMessageBox.information(self, "成功", "课程信息更新成功")
-                        except sqlite3.IntegrityError:
-                            QMessageBox.warning(self, "错误", "该课程已存在")
-                        except Exception as e:
-                            QMessageBox.critical(self, "错误", f"更新失败: {str(e)}")
-
-    def delete_course(self):
-        current_row = self.course_table.currentRow()
-        if current_row >= 0:
-            course_name = self.course_table.item(current_row, 0).text()
-
-            reply = QMessageBox.question(self, '确认删除', f'确定要删除课程 {course_name} 吗？', QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-            if reply == QMessageBox.Yes:
-                try:
-                    cursor = self.db_connection.cursor()
-                    cursor.execute("DELETE FROM courses WHERE course_name = ?", (course_name,))
-                    self.db_connection.commit()
-                    self.load_courses()
-                    self.course_updated.emit()
-                    QMessageBox.information(self, "成功", "课程删除成功")
-                except Exception as e:
-                    QMessageBox.critical(self, "错误", f"删除失败: {str(e)}")
-                    
 if __name__ == "__main__":
     try:
         app = QtWidgets.QApplication(sys.argv)
