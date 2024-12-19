@@ -10,6 +10,7 @@ from PyQt5.QtCore import Qt, pyqtSignal
 import sqlite3
 import matplotlib.pyplot as plt
 from collections import defaultdict
+import matplotlib.font_manager as fm
 
 class ScheduleManager(QtWidgets.QMainWindow):
     def __init__(self):
@@ -26,7 +27,7 @@ class ScheduleManager(QtWidgets.QMainWindow):
 
     def initUI(self):
         self.setWindowTitle("学生课表管理程序")
-        self.setGeometry(100, 100, 1100, 650) 
+        self.setGeometry(100, 100, 1100, 670) 
 
         # Status Label
         self.status_label = QLabel("等待导入表格中（如不导入数据则无法导出为 Excel 表格）", self)
@@ -90,40 +91,80 @@ class ScheduleManager(QtWidgets.QMainWindow):
         self.update_data_btn.setGeometry(680, 520, 200, 40)
         self.update_data_btn.clicked.connect(self.update_student_course_data)
 
+        self.class_label = QLabel("选择班级:", self)
+        self.class_label.setGeometry(50, 620, 100, 30)
+        self.class_combobox = QComboBox(self)
+        self.class_combobox.setGeometry(150, 620, 200, 30)
+        self.load_class_combobox()
+
+        self.week_label = QLabel("选择周数:", self)
+        self.week_label.setGeometry(370, 620, 100, 30)
+        self.week_combobox = QComboBox(self)
+        self.week_combobox.setGeometry(470, 620, 200, 30)
+        self.load_week_combobox()
+
         self.plot_btn = QtWidgets.QPushButton("统计上课频次", self)
         self.plot_btn.setGeometry(50, 570, 200, 40)
         self.plot_btn.clicked.connect(self.plot_class_frequency)
 
     def count_classes_per_weekday(self):
-        """统计每周每天的上课频次"""
+        selected_class = self.class_combobox.currentText()
+        selected_week = self.week_combobox.currentText().replace("第", "").replace("周", "")
+        
         cursor = self.db_connection.cursor()
-        cursor.execute("SELECT time_slot FROM schedule")
-        time_slots = cursor.fetchall()
+        cursor.execute("""
+            SELECT s.weekday, COUNT(*) 
+            FROM schedule s
+            JOIN students st ON s.student_name = st.student_name
+            JOIN courses c ON s.course_name = c.course_name
+            WHERE st.class_name = ? AND ? BETWEEN CAST(SUBSTR(c.semester, 1, INSTR(c.semester, '-') - 1) AS INTEGER)
+            AND CAST(SUBSTR(c.semester, INSTR(c.semester, '-') + 1) AS INTEGER)
+            GROUP BY s.weekday
+        """, (selected_class, selected_week))
+        rows = cursor.fetchall()
 
-        # 定义每周的天数
-        weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
-        class_count = defaultdict(int)
+        # 定义每周的天数（不包括星期天）
+        weekdays = ["周一", "周二", "周三", "周四", "周五", "周六"]
+        class_count = {day: 0 for day in weekdays}
 
         # 统计上课频次
-        for (time_slot,) in time_slots:
-            if time_slot:
-                class_count[time_slot] += 1
+        for weekday, count in rows:
+            if weekday in class_count:
+                class_count[weekday] = count
 
         return class_count, weekdays
-    
+
     def plot_class_frequency(self):
         class_count, weekdays = self.count_classes_per_weekday()
 
         # 生成数据
         frequencies = [class_count[day] for day in weekdays]
 
+        font_path = './ubuntu.ttf'
+        font_prop = fm.FontProperties(fname=font_path)
+        plt.rcParams['font.sans-serif'] = [font_path]
+        plt.rcParams['axes.unicode_minus'] = False
+        plt.rcParams.update({'font.size': 14})
+
         # 绘制柱状图
-        plt.figure(figsize=(10, 6))
+        plt.figure(figsize=(12, 8))
         plt.bar(weekdays, frequencies, color='skyblue')
-        plt.xlabel('星期')
-        plt.ylabel('上课频次')
-        plt.title('每周每天上课频次统计')
+        plt.xlabel('星期', fontsize=16, fontproperties=font_prop)
+        plt.ylabel('上课频次', fontsize=16, fontproperties=font_prop)
+        plt.title('每周每天上课频次统计', fontsize=20, fontproperties=font_prop)
+        plt.xticks(fontsize=14, fontproperties=font_prop)
+        plt.yticks(fontsize=14, fontproperties=font_prop)
         plt.show()
+
+    def load_class_combobox(self):
+        cursor = self.db_connection.cursor()
+        cursor.execute("SELECT DISTINCT class_name FROM students")
+        classes = [row[0] for row in cursor.fetchall()]
+        self.class_combobox.addItems(classes)
+
+    def load_week_combobox(self):
+        weeks = [f"第{week}周" for week in range(1, 18)]
+        self.week_combobox.addItems(weeks)
 
     def auto_schedule(self):
         """自动排课"""
