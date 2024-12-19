@@ -8,6 +8,8 @@ from PyQt5.QtWidgets import (QFileDialog, QMessageBox, QLabel, QTableWidget,
 from PyQt5.QtGui import QIntValidator, QDoubleValidator
 from PyQt5.QtCore import Qt, pyqtSignal
 import sqlite3
+import matplotlib.pyplot as plt
+from collections import defaultdict
 
 class ScheduleManager(QtWidgets.QMainWindow):
     def __init__(self):
@@ -24,22 +26,22 @@ class ScheduleManager(QtWidgets.QMainWindow):
 
     def initUI(self):
         self.setWindowTitle("学生课表管理程序")
-        self.setGeometry(100, 100, 1000, 600)
+        self.setGeometry(100, 100, 1100, 650) 
 
         # Status Label
         self.status_label = QLabel("等待导入表格中（如不导入数据则无法导出为 Excel 表格）", self)
-        self.status_label.setGeometry(50, 10, 900, 30)
+        self.status_label.setGeometry(50, 10, 1000, 30)
         self.status_label.setStyleSheet("color: gray;")
 
         # Table Widget
         self.table_widget = QTableWidget(self)
-        self.table_widget.setGeometry(50, 50, 900, 400)
+        self.table_widget.setGeometry(50, 50, 1000, 400)
         self.table_widget.setColumnCount(8)
         self.table_widget.setHorizontalHeaderLabels(['学生姓名', '班级', '课程名称', '学分', '星期', '行课时间', '周数', '教室'])
     
         # 调整列宽
         self.table_widget.setColumnWidth(0, 100)  # 学生姓名列
-        self.table_widget.setColumnWidth(1, 100)  # 班级列
+        self.table_widget.setColumnWidth(1, 160)  # 班级列
         self.table_widget.setColumnWidth(2, 200)  # 课程名称列
         self.table_widget.setColumnWidth(3, 40)   # 学分列
         self.table_widget.setColumnWidth(4, 60)   # 星期列
@@ -80,9 +82,143 @@ class ScheduleManager(QtWidgets.QMainWindow):
         self.manage_courses_btn.setGeometry(470, 520, 200, 40)
         self.manage_courses_btn.clicked.connect(self.show_course_manager)
 
+        self.auto_schedule_btn = QtWidgets.QPushButton("自动排课", self)
+        self.auto_schedule_btn.setGeometry(680, 570, 200, 40)
+        self.auto_schedule_btn.clicked.connect(self.auto_schedule)
+
         self.update_data_btn = QtWidgets.QPushButton("更新学生课程数据", self)
         self.update_data_btn.setGeometry(680, 520, 200, 40)
         self.update_data_btn.clicked.connect(self.update_student_course_data)
+
+        self.plot_btn = QtWidgets.QPushButton("统计上课频次", self)
+        self.plot_btn.setGeometry(50, 570, 200, 40)
+        self.plot_btn.clicked.connect(self.plot_class_frequency)
+
+    def count_classes_per_weekday(self):
+        """统计每周每天的上课频次"""
+        cursor = self.db_connection.cursor()
+        cursor.execute("SELECT time_slot FROM schedule")
+        time_slots = cursor.fetchall()
+
+        # 定义每周的天数
+        weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+        class_count = defaultdict(int)
+
+        # 统计上课频次
+        for (time_slot,) in time_slots:
+            if time_slot:
+                class_count[time_slot] += 1
+
+        return class_count, weekdays
+    
+    def plot_class_frequency(self):
+        class_count, weekdays = self.count_classes_per_weekday()
+
+        # 生成数据
+        frequencies = [class_count[day] for day in weekdays]
+
+        # 绘制柱状图
+        plt.figure(figsize=(10, 6))
+        plt.bar(weekdays, frequencies, color='skyblue')
+        plt.xlabel('星期')
+        plt.ylabel('上课频次')
+        plt.title('每周每天上课频次统计')
+        plt.show()
+
+    def auto_schedule(self):
+        """自动排课"""
+        try:
+            print("开始自动排课...")
+            cursor = self.db_connection.cursor()
+            
+            # 检查数据库连接
+            if not self.db_connection:
+                raise Exception("数据库连接失败")
+            
+            # 获取学生列表
+            try:
+                cursor.execute("SELECT student_name FROM students")
+                students = [row[0] for row in cursor.fetchall()]
+                print(f"获取到 {len(students)} 名学生")
+            except Exception as e:
+                raise Exception(f"获取学生列表失败: {str(e)}")
+
+            # 获取课程列表
+            try:
+                cursor.execute("SELECT course_name, credit FROM courses")
+                courses = cursor.fetchall()
+                print(f"获取到 {len(courses)} 门课程")
+            except Exception as e:
+                raise Exception(f"获取课程列表失败: {str(e)}")
+
+            # 检查数据是否足够
+            if not students:
+                raise Exception("没有找到学生信息")
+            if not courses:
+                raise Exception("没有找到课程信息")
+
+            print("清空现有课表...")
+            try:
+                # 清空现有课表
+                cursor.execute("DELETE FROM schedule")
+            except Exception as e:
+                raise Exception(f"清空课表失败: {str(e)}")
+            
+            # 准备插入的数据
+            print("生成排课数据...")
+            schedule = []
+            try:
+                for student in students:
+                    for course_name, credit in courses:
+                        # 随机分配时间段和教室
+                        weekday = self.weekdays[len(schedule) % len(self.weekdays)]
+                        time_slot = self.time_slots[len(schedule) % len(self.time_slots)]
+                        classroom = f"H{101 + len(schedule) % 10}"
+
+                        schedule.append((
+                            student,
+                            course_name,
+                            credit,
+                            weekday,
+                            time_slot,
+                            classroom
+                        ))
+                print(f"生成了 {len(schedule)} 条排课记录")
+            except Exception as e:
+                raise Exception(f"生成排课数据失败: {str(e)}")
+
+            # 批量插入数据
+            print("插入排课数据到数据库...")
+            try:
+                cursor.executemany("""
+                    INSERT INTO schedule 
+                    (student_name, course_name, credit, weekday, time_slot, classroom)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, schedule)
+                
+                self.db_connection.commit()
+                print("数据库提交成功")
+            except Exception as e:
+                self.db_connection.rollback()
+                raise Exception(f"插入数据失败: {str(e)}")
+
+            # 刷新表格显示
+            print("更新表格显示...")
+            try:
+                self.load_schedule_into_table()
+            except Exception as e:
+                raise Exception(f"更新表格显示失败: {str(e)}")
+
+            print("自动排课完成")
+            QMessageBox.information(self, "成功", "自动排课成功")
+            
+        except Exception as e:
+            error_msg = f"自动排课失败: {str(e)}"
+            print(error_msg)
+            QMessageBox.critical(self, "错误", error_msg)
+            # 打印详细的错误堆栈
+            import traceback
+            traceback.print_exc()
 
     def show_student_manager(self):
         """显示学生管理窗口"""
@@ -260,20 +396,29 @@ class ScheduleManager(QtWidgets.QMainWindow):
             QMessageBox.critical(self, "错误", f"导出失败: {str(e)}")
 
     def connect_to_database(self):
+        """初始化数据库连接并创建必要的表"""
         try:
             conn = sqlite3.connect("schedule.db")
             cursor = conn.cursor()
+
+            # 先删除旧表以确保表结构更新
+            cursor.execute("DROP TABLE IF EXISTS schedule")
+            
+            # 创建新的课程表，确保包含所有必要的列
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS schedule (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     student_name TEXT,
                     course_name TEXT,
-                    credit INTEGER,
+                    credit REAL,
                     weekday TEXT,
                     time_slot TEXT,
-                    classroom TEXT
+                    classroom TEXT,
+                    semester TEXT
                 )
             """)
+            
+            # 创建或更新学生表
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS students (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -281,14 +426,17 @@ class ScheduleManager(QtWidgets.QMainWindow):
                     class_name TEXT
                 )
             """)
+            
+            # 创建或更新课程表
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS courses (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     course_name TEXT UNIQUE,
-                    credit INTEGER,
+                    credit REAL,
                     semester TEXT
                 )
             """)
+            
             conn.commit()
             return conn
         except sqlite3.Error as err:
@@ -369,9 +517,17 @@ class ScheduleManager(QtWidgets.QMainWindow):
         self.table_widget.setRowCount(0)
 
         cursor = self.db_connection.cursor()
+        # 修改 SQL 查询，移除注释
         cursor.execute("""
-            SELECT s.student_name, st.class_name, s.course_name, 
-                c.credit, s.weekday, s.time_slot, c.semester, s.classroom  # 注意这里调整了顺序
+            SELECT 
+                s.student_name, 
+                st.class_name, 
+                s.course_name, 
+                c.credit, 
+                s.weekday, 
+                s.time_slot, 
+                c.semester, 
+                s.classroom
             FROM schedule s
             LEFT JOIN students st ON s.student_name = st.student_name
             LEFT JOIN courses c ON s.course_name = c.course_name
@@ -412,7 +568,7 @@ class ScheduleManager(QtWidgets.QMainWindow):
                     self.table_widget.setCellWidget(row_position, column, line_edit)
                 elif column == 7:  # 教室
                     line_edit = QLineEdit(str(data))
-                    line_edit.setValidator(QIntValidator(0, 9999))  # 限制只能输入数字
+                    line_edit.setValidator(QIntValidator(0, 9999))
                     line_edit.editingFinished.connect(lambda le=line_edit: self.add_classroom_prefix(le))
                     self.table_widget.setCellWidget(row_position, column, line_edit)
 
@@ -627,57 +783,56 @@ class ScheduleManager(QtWidgets.QMainWindow):
             self.template_btn.setText("生成课表模板")
 
     def save_to_database(self):
-        """Save current table data to database"""
+        """保存当前表格数据到数据库"""
         try:
             cursor = self.db_connection.cursor()
             
-            # Clear existing data
+            # 清空现有数据
             cursor.execute("DELETE FROM schedule")
             
-            # Save each row
+            # 保存每一行数据
             for row in range(self.table_widget.rowCount()):
-                # Get student name from combobox
+                # 获取各列的数据
                 student_widget = self.table_widget.cellWidget(row, 0)
-                if not student_widget:
-                    continue  # Skip this row if no student widget
-                student_name = student_widget.currentText()
-                
-                # Get course name from combobox
-                course_widget = self.table_widget.cellWidget(row, 1)
-                if not course_widget:
-                    continue  # Skip this row if no course widget
-                course_name = course_widget.currentText()
-                
-                # Get credit from line edit
-                credit_widget = self.table_widget.cellWidget(row, 2)
-                if not credit_widget:
-                    continue  # Skip this row if no credit widget
-                credit = credit_widget.text()
-                
-                # Get time slot from combobox
-                time_widget = self.table_widget.cellWidget(row, 3)
-                if not time_widget:
-                    continue  # Skip this row if no time widget
-                time_slot = time_widget.currentText()
-                
-                # Get classroom from line edit
-                classroom_widget = self.table_widget.cellWidget(row, 4)
-                if not classroom_widget:
-                    continue  # Skip this row if no classroom widget
-                classroom = classroom_widget.text()
-                
-                # Skip empty rows
-                if not all([student_name, course_name, credit, time_slot, classroom]):
+                course_widget = self.table_widget.cellWidget(row, 2)
+                credit_widget = self.table_widget.cellWidget(row, 3)
+                weekday_widget = self.table_widget.cellWidget(row, 4)
+                time_widget = self.table_widget.cellWidget(row, 5)
+                semester_widget = self.table_widget.cellWidget(row, 6)
+                classroom_widget = self.table_widget.cellWidget(row, 7)
+
+                # 检查必要的控件是否存在
+                if not all([student_widget, course_widget]):
                     continue
-                
-                # Insert into database
-                cursor.execute("""
-                    INSERT INTO schedule (student_name, course_name, credit, time_slot, classroom)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (student_name, course_name, credit, time_slot, classroom))
-            
+
+                # 根据控件类型获取值
+                student_name = student_widget.currentText() if isinstance(student_widget, QComboBox) else ""
+                course_name = course_widget.currentText() if isinstance(course_widget, QComboBox) else ""
+                credit = credit_widget.text() if isinstance(credit_widget, QLineEdit) else "0"
+                weekday = weekday_widget.currentText() if isinstance(weekday_widget, QComboBox) else ""
+                time_slot = time_widget.currentText() if isinstance(time_widget, QComboBox) else ""
+                semester = semester_widget.text() if isinstance(semester_widget, QLineEdit) else ""
+                classroom = classroom_widget.text() if isinstance(classroom_widget, QLineEdit) else ""
+
+                # 跳过空行
+                if not all([student_name, course_name]):
+                    continue
+
+                # 插入数据库
+                try:
+                    cursor.execute("""
+                        INSERT INTO schedule 
+                        (student_name, course_name, credit, weekday, time_slot, classroom, semester)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, (student_name, course_name, credit, weekday, time_slot, classroom, semester))
+                except sqlite3.Error as e:
+                    print(f"插入行 {row + 1} 时出错: {str(e)}")
+                    continue
+
             self.db_connection.commit()
+            print("数据保存成功")
             return True
+
         except Exception as e:
             print(f"保存到数据库失败: {str(e)}")
             self.db_connection.rollback()
@@ -688,69 +843,110 @@ class ScheduleManager(QtWidgets.QMainWindow):
         file_name, _ = QFileDialog.getOpenFileName(self, "从 SQLite 文件导入", "", "SQLite Files (*.db);;All Files (*)", options=options)
         if file_name:
             try:
-                cursor = self.db_connection.cursor()
-                cursor.execute("DELETE FROM schedule")
-                self.db_connection.commit()
-
+                # 首先检查源数据库的表结构
                 new_conn = sqlite3.connect(file_name)
                 new_cursor = new_conn.cursor()
-                new_cursor.execute("SELECT student_name, course_name, credit, time_slot, classroom FROM schedule")
+                
+                # 获取源数据库的表结构
+                new_cursor.execute("PRAGMA table_info(schedule)")
+                columns = [column[1] for column in new_cursor.fetchall()]
+                
+                # 检查必要的列是否存在
+                required_columns = ['student_name', 'course_name', 'credit', 'weekday', 'time_slot', 'classroom']
+                missing_columns = [col for col in required_columns if col not in columns]
+                
+                if missing_columns:
+                    raise Exception(f"源数据库缺少必要的列: {', '.join(missing_columns)}")
+                
+                # 清空目标数据库
+                cursor = self.db_connection.cursor()
+                cursor.execute("DELETE FROM schedule")
+                
+                # 导入数据
+                new_cursor.execute("""
+                    SELECT 
+                        student_name, 
+                        course_name, 
+                        credit, 
+                        weekday,
+                        time_slot, 
+                        classroom
+                    FROM schedule
+                """)
                 rows = new_cursor.fetchall()
-
+                
                 cursor.executemany("""
-                    INSERT INTO schedule (student_name, course_name, credit, time_slot, classroom)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO schedule 
+                    (student_name, course_name, credit, weekday, time_slot, classroom)
+                    VALUES (?, ?, ?, ?, ?, ?)
                 """, rows)
+                
                 self.db_connection.commit()
                 new_conn.close()
-
+                
                 self.imported_file_path = file_name
                 self.update_status_label("sqlite")
                 self.load_schedule_into_table()
                 QMessageBox.information(self, "成功", "数据已从 SQLite 文件导入")
-            except sqlite3.Error as e:
+                
+            except Exception as e:
                 print(f"导入失败: {str(e)}")
                 QMessageBox.critical(self, "错误", f"导入失败: {str(e)}")
 
+
     def export_to_sqlite(self):
-        # Save the current table data to the database
-        if not self.save_to_database():
-            QMessageBox.critical(self, "错误", "保存数据失败")
-            return
-    
-        # Export the current database to a new SQLite file
-        options = QFileDialog.Options()
-        file_name, _ = QFileDialog.getSaveFileName(self, "导出至 SQLite 文件", "", "SQLite Files (*.db);;All Files (*)", options=options)
-        if file_name:
-            try:
-                # Connect to the new SQLite file
+        try:
+            # 保存当前表格数据到数据库
+            if not self.save_to_database():
+                raise Exception("保存当前数据失败")
+                
+            options = QFileDialog.Options()
+            file_name, _ = QFileDialog.getSaveFileName(self, "导出到 SQLite 文件", "", 
+                                                    "SQLite Files (*.db);;All Files (*)", options=options)
+            if file_name:
+                if not file_name.endswith('.db'):
+                    file_name += '.db'
+                    
+                # 创建新的数据库文件
                 new_conn = sqlite3.connect(file_name)
                 new_cursor = new_conn.cursor()
+                
+                # 创建表结构
                 new_cursor.execute("""
                     CREATE TABLE IF NOT EXISTS schedule (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         student_name TEXT,
                         course_name TEXT,
-                        credit INTEGER,
+                        credit REAL,
+                        weekday TEXT,
                         time_slot TEXT,
-                        classroom TEXT
+                        classroom TEXT,
+                        semester TEXT
                     )
                 """)
-                new_conn.commit()
-    
-                # Copy data from the current database to the new SQLite file
+                
+                # 从当前数据库复制数据
                 cursor = self.db_connection.cursor()
-                cursor.execute("SELECT student_name, course_name, credit, time_slot, classroom FROM schedule")
+                cursor.execute("""
+                    SELECT student_name, course_name, credit, weekday, time_slot, classroom
+                    FROM schedule
+                """)
                 rows = cursor.fetchall()
+                
                 new_cursor.executemany("""
-                    INSERT INTO schedule (student_name, course_name, credit, time_slot, classroom)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO schedule 
+                    (student_name, course_name, credit, weekday, time_slot, classroom)
+                    VALUES (?, ?, ?, ?, ?, ?)
                 """, rows)
+                
                 new_conn.commit()
                 new_conn.close()
-                QMessageBox.information(self, "成功", "数据已导出至 SQLite 文件")
-            except sqlite3.Error as e:
-                QMessageBox.critical(self, "错误", f"导出失败: {str(e)}")
+                
+                QMessageBox.information(self, "成功", "数据已导出到 SQLite 文件")
+                
+        except Exception as e:
+            print(f"导出失败: {str(e)}")
+            QMessageBox.critical(self, "错误", f"导出失败: {str(e)}")
 
     def update_dropdowns(self):
         """更新下拉列表的内容"""
