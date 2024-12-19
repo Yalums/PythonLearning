@@ -67,6 +67,10 @@ class ScheduleManager(QtWidgets.QMainWindow):
         self.manage_courses_btn.setGeometry(470, 520, 200, 40)
         self.manage_courses_btn.clicked.connect(self.show_course_manager)
 
+        self.update_data_btn = QtWidgets.QPushButton("更新学生课程数据", self)
+        self.update_data_btn.setGeometry(680, 520, 200, 40)
+        self.update_data_btn.clicked.connect(self.update_student_course_data)
+
     def show_student_manager(self):
         """显示学生管理窗口"""
         self.student_manager = StudentManager(self.db_connection, self)
@@ -145,6 +149,13 @@ class ScheduleManager(QtWidgets.QMainWindow):
             # 更新状态标签
             self.status_label.setText("数据已初始化")
             self.status_label.setStyleSheet("color: blue;")
+
+    def update_student_course_data(self):
+        """更新学生和课程数据，并重新加载下拉菜单"""
+        self.load_students()
+        self.load_courses()
+        self.update_comboboxes()
+        QMessageBox.information(self, "成功", "学生和课程数据已更新")
     
     def export_to_excel(self):
         """导出课表到Excel文件"""
@@ -258,9 +269,14 @@ class ScheduleManager(QtWidgets.QMainWindow):
 
     def update_comboboxes(self):
         for row in range(self.table_widget.rowCount()):
-            student_combo = self.create_student_combobox(self.table_widget.item(row, 0).text())
+            student_item = self.table_widget.item(row, 0)
+            student_text = student_item.text() if student_item else ""
+            student_combo = self.create_student_combobox(student_text)
             self.table_widget.setCellWidget(row, 0, student_combo)
-            course_combo = self.create_course_combobox(self.table_widget.item(row, 1).text())
+
+            course_item = self.table_widget.item(row, 1)
+            course_text = course_item.text() if course_item else ""
+            course_combo = self.create_course_combobox(course_text)
             self.table_widget.setCellWidget(row, 1, course_combo)
 
     def import_schedule(self):
@@ -768,6 +784,7 @@ class CourseManager(QtWidgets.QDialog):
         super().__init__(parent)
         self.db_connection = db_connection
         self.parent = parent
+        self.course_dict = {}  # 添加一个字典来存储课程名称和学分
         self.initUI()
         self.load_courses()
 
@@ -805,6 +822,7 @@ class CourseManager(QtWidgets.QDialog):
         courses = cursor.fetchall()
 
         self.course_table.setRowCount(len(courses))
+        self.course_dict = {course[0]: course[1] for course in courses}  # 课程名称和学分绑定
         for row, course in enumerate(courses):
             for col, value in enumerate(course):
                 item = QTableWidgetItem(str(value))
@@ -894,6 +912,30 @@ class CourseManager(QtWidgets.QDialog):
                     QMessageBox.information(self, "成功", "课程删除成功")
                 except Exception as e:
                     QMessageBox.critical(self, "错误", f"删除失败: {str(e)}")
+
+    def create_course_combobox(self, current_text=""):
+        combo = QComboBox()
+        combo.addItems(self.parent.course_list)
+        combo.setEditable(True)
+        combo.setCurrentText(current_text)
+
+        completer = QCompleter(self.parent.course_list, combo)
+        completer.setCompletionMode(QCompleter.PopupCompletion)
+        completer.setCaseSensitivity(QtCore.Qt.CaseInsensitive)
+        combo.setCompleter(completer)
+
+        if current_text in self.course_dict:
+            index = self.parent.table_widget.currentRow()
+            self.parent.table_widget.cellWidget(index, 2).setText(str(self.course_dict[current_text]))
+
+        combo.currentTextChanged.connect(lambda text: self.update_credit(text))
+
+        return combo
+    
+    def update_credit(self, course_name):
+        if course_name in self.course_dict:
+            index = self.parent.table_widget.currentRow()
+            self.parent.table_widget.cellWidget(index, 2).setText(str(self.course_dict[course_name]))
 
 class SelectCourseDialog(QDialog):
     def __init__(self, course_list, parent=None):
