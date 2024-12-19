@@ -390,70 +390,71 @@ class ScheduleManager(QtWidgets.QMainWindow):
 
     def initialize_data(self):
         """初始化学生与课程信息或导出课表"""
-        # 根据按钮文本决定执行的操作
-        if self.init_btn.text() == "导出课表":
-            self.export_to_excel()
-            return
-    
-        # 执行初始化操作
-        reply = QMessageBox.question(self, '确认初始化', 
-                                   '这将清空所有现有的学生和课程信息，确定要继续吗？',
-                                   QMessageBox.Yes | QMessageBox.No, 
-                                   QMessageBox.No)
-        
-        if reply == QMessageBox.Yes:
-            try:
-                cursor = self.db_connection.cursor()
-                
-                # 清空现有数据
-                cursor.execute("DELETE FROM schedule")
-                cursor.execute("DELETE FROM students")
-                cursor.execute("DELETE FROM courses")
-                
-                # 重置自增ID
-                cursor.execute("DELETE FROM sqlite_sequence WHERE name IN ('students', 'courses', 'schedule')")
-                
-                # 初始化默认学生
-                default_students = [
-                    ('张三', '自动化231'),
-                    ('李四', '自动化232'),
-                    ('王五', '机器人工程232'),
-                    # ... 可以添加更多默认学生
-                ]
-                cursor.executemany("""
-                    INSERT INTO students (student_name, class_name)
-                    VALUES (?, ?)
-                """, default_students)
-                
-                # 初始化默认课程
-                default_courses = [
-                    ('高等数学', 4.0, '3-16'),
-                    ('线性代数', 3.0, '3-14'),
-                    ('大学物理', 4.0, '6-15'),
-                    ('Python编程技术', 2.5, '3-16'),
-                    ('思想道德与法治', 3.5, '9-14'),
-                ]
-                cursor.executemany("""
-                    INSERT INTO courses (course_name, credit, semester)
-                    VALUES (?, ?, ?)
-                """, default_courses)
-                
-                self.db_connection.commit()
-                
-                # 清空并重新加载表格
-                self.table_widget.setRowCount(0)
-                self.load_courses()
-                
-                QMessageBox.information(self, "成功", "学生与课程信息已初始化")
-                
-            except Exception as e:
-                self.db_connection.rollback()
-                QMessageBox.critical(self, "错误", f"初始化失败: {str(e)}")
-                return
+        try:
+            cursor = self.db_connection.cursor()
             
-            # 更新状态标签
-            self.status_label.setText("数据已初始化")
-            self.status_label.setStyleSheet("color: blue;")
+            # 清空现有数据
+            cursor.execute("DELETE FROM schedule")
+            cursor.execute("DELETE FROM students")
+            cursor.execute("DELETE FROM courses")
+            
+            # 重置自增ID
+            cursor.execute("DELETE FROM sqlite_sequence WHERE name IN ('students', 'courses', 'schedule')")
+            
+            # 初始化默认学生 - 移除多余的空格
+            default_students = [
+                ('林悦溪', '自动化211'), ('苏逸晨', '自动化211'), ('林宇轩', '自动化212'),
+                ('叶梓豪', '自动化213'), ('苏锦瑶', '自动化212'), ('沈俊辉', '自动化221'),
+                ('秦泽凯', '自动化222'), ('许皓阳', '自动化223'), ('叶婉清', '自动化213'),
+                ('唐文昊', '自动化231'), ('白睿渊', '自动化232'), ('楚晨峰', '自动化233'),
+                ('沈梦璃', '自动化221'), ('柳靖琪', '自动化234'), ('赵景铄', '自动化211'),
+                ('陈俊驰', '自动化212'), ('秦诗涵', '自动化222'), ('周远航', '自动化213'),
+                ('陆博超', '自动化221'), ('郑子轩', '自动化222'), ('许静雅', '自动化223'),
+                ('何宇澄', '自动化223'), ('冯睿晨', '自动化231'), ('罗嘉豪', '自动化232'),
+                ('唐晓萱', '自动化231'), ('萧启铭', '自动化233'), ('田耀辉', '自动化234'),
+                ('孙逸飞', '自动化211'), ('白若冰', '自动化232'), ('钱锦程', '自动化212'),
+                ('吴梓轩', '自动化213'), ('梁梓铭', '自动化221'), ('楚依琳', '自动化233'),
+                ('谢翰飞', '自动化222'), ('傅晨熙', '自动化223'), ('彭俊楠', '自动化231'),
+                ('柳雨薇', '自动化234'), ('蒋睿峰', '自动化232'), ('韩浩宇', '自动化233'),
+                ('曹宇翔', '自动化234'), ('赵灵芸', '自动化211'), ('陈佳凝', '自动化212'),
+                ('周语蝶', '自动化213'), ('陆芷晴', '自动化221'), ('郑雅琪', '自动化222'),
+                ('何思瑶', '自动化223'), ('田雨昕', '自动化234'), ('钱浅兮', '自动化212'),
+                ('谢诗韵', '自动化222'), ('傅冰清', '自动化223'), ('彭晓兰', '自动化231'),
+                ('蒋雨桐', '自动化232'), ('韩紫菱', '自动化233'), ('曹静婉', '自动化234')
+            ]
+            
+            # 使用参数化查询插入数据
+            cursor.executemany("""
+                INSERT INTO students (student_name, class_name)
+                VALUES (?, ?)
+            """, [(name.strip(), class_name.strip()) for name, class_name in default_students])
+            
+            # 初始化默认课程
+            default_courses = [
+                ('高等数学', 4.0, '3-16'),
+                ('线性代数', 3.0, '3-14'),
+                ('大学物理', 4.0, '6-15'),
+                ('Python编程技术', 2.5, '3-16'),
+                ('思想道德与法治', 3.5, '9-14')
+            ]
+            
+            cursor.executemany("""
+                INSERT INTO courses (course_name, credit, semester)
+                VALUES (?, ?, ?)
+            """, [(name.strip(), credit, semester.strip()) for name, credit, semester in default_courses])
+            
+            self.db_connection.commit()
+            
+            # 清空并重新加载表格
+            self.table_widget.setRowCount(0)
+            self.load_courses()
+            
+            QMessageBox.information(self, "成功", "学生与课程信息已初始化")
+            
+        except Exception as e:
+            self.db_connection.rollback()
+            QMessageBox.critical(self, "错误", f"初始化失败: {str(e)}")
+            return
 
     def update_student_course_data(self):
         """更新学生和课程数据，并更新选择学生下拉菜单"""
@@ -621,14 +622,9 @@ class ScheduleManager(QtWidgets.QMainWindow):
 
     def update_comboboxes(self):
         for row in range(self.table_widget.rowCount()):
-            student_item = self.table_widget.item(row, 0)
-            student_text = student_item.text() if student_item else ""
-            student_combo = self.create_student_combobox(student_text)
+            student_combo = self.create_student_combobox(self.table_widget.item(row, 0).text() if self.table_widget.item(row, 0) else "")
             self.table_widget.setCellWidget(row, 0, student_combo)
-
-            course_item = self.table_widget.item(row, 1)
-            course_text = course_item.text() if course_item else ""
-            course_combo = self.create_course_combobox(course_text)
+            course_combo = self.create_course_combobox(self.table_widget.item(row, 1).text() if self.table_widget.item(row, 1) else "")
             self.table_widget.setCellWidget(row, 1, course_combo)
 
     def import_schedule(self):
@@ -738,7 +734,6 @@ class ScheduleManager(QtWidgets.QMainWindow):
                     line_edit.editingFinished.connect(lambda le=line_edit: self.add_classroom_prefix(le))
                     self.table_widget.setCellWidget(row_position, column, line_edit)
 
-
     def update_student_class(self, student_name, combo):
         """更新学生班级信息"""
         try:
@@ -749,7 +744,7 @@ class ScheduleManager(QtWidgets.QMainWindow):
             if result:
                 row = self.table_widget.indexAt(combo.pos()).row()
                 class_edit = self.table_widget.cellWidget(row, 1)  # 班级列
-                if class_edit:
+                if class_edit and isinstance(class_edit, QLineEdit):
                     class_edit.setText(result[0])
         except Exception as e:
             print(f"更新班级信息失败: {str(e)}")
@@ -775,17 +770,19 @@ class ScheduleManager(QtWidgets.QMainWindow):
 
 
     def create_course_combobox(self, current_text=""):
+        """创建课程下拉框"""
         combo = QComboBox()
         combo.addItems(self.course_list)
         combo.setEditable(True)
         combo.setCurrentText(current_text)
 
-        completer = QCompleter(self.course_list)
+        completer = QCompleter(self.course_list, combo)
         completer.setCompletionMode(QCompleter.PopupCompletion)
-        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        completer.setCaseSensitivity(QtCore.Qt.CaseInsensitive)
         combo.setCompleter(completer)
 
-        combo.currentTextChanged.connect(lambda text: self.update_course_info(text, combo))
+        # 添加信号连接
+        combo.currentTextChanged.connect(lambda text, c=combo: self.update_course_info(text, c))
 
         return combo
 
@@ -810,44 +807,12 @@ class ScheduleManager(QtWidgets.QMainWindow):
         return combo
 
     def add_classroom_prefix(self, line_edit):
-        """为教室号添加H前缀并确保格式正确"""
-        text = line_edit.text().strip()
-        if not text:
-            return
-            
-        # 移除现有的H前缀（如果有）
-        if text.startswith('H'):
-            text = text[1:]
-        
-        try:
-            # 确保输入的是4位数字（3位房间号+1位后缀）
-            number = int(text)
-            if 1000 <= number <= 4209:  # 允许的范围：1000-4209
-                building = int(text[0])
-                room = int(text[1:3])
-                suffix = int(text[3])
-                
-                if building in [1, 2, 4] and room <= 20 and 1 <= suffix <= 9:
-                    formatted_text = f"H{building}{room:02d}{suffix}"
-                    line_edit.setText(formatted_text)
-                else:
-                    if building not in [1, 2, 4]:
-                        QMessageBox.warning(self, "警告", "教学楼号必须是1、2或4")
-                    elif room > 20:
-                        QMessageBox.warning(self, "警告", "房间号必须是01-20之间")
-                    elif suffix < 1 or suffix > 9:
-                        QMessageBox.warning(self, "警告", "后缀必须是1-9之间")
-                    line_edit.setText("")
-            else:
-                line_edit.setText("")
-                QMessageBox.warning(self, "警告", "请输入有效的教室号（例如：H1011）")
-        except ValueError:
-            line_edit.setText("")
-            QMessageBox.warning(self, "警告", "请输入有效的教室号（例如：H1011）")
-
-
+        text = line_edit.text()
+        if not text.startswith('H'):
+            line_edit.setText(f'H{text}')
 
     def add_new_row(self):
+        """添加新行"""
         row_position = self.table_widget.rowCount()
         self.table_widget.insertRow(row_position)
 
@@ -872,18 +837,16 @@ class ScheduleManager(QtWidgets.QMainWindow):
             elif column == 5:  # 时间段列
                 combo = self.create_time_slot_combobox()
                 self.table_widget.setCellWidget(row_position, column, combo)
-            elif column == 6:  # 周数列 - 注意这里改为6
+            elif column == 6:  # 周数列
                 line_edit = QLineEdit()
                 line_edit.setReadOnly(True)
                 self.table_widget.setCellWidget(row_position, column, line_edit)
             elif column == 7:  # 教室列
                 line_edit = QLineEdit()
-                # 创建自定义的验证器，允许后缀
                 validator = QtGui.QRegExpValidator(QtCore.QRegExp(r"H?[124]\d{2}[1-9]"))
                 line_edit.setValidator(validator)
                 line_edit.editingFinished.connect(lambda le=line_edit: self.add_classroom_prefix(le))
                 self.table_widget.setCellWidget(row_position, column, line_edit)
-
 
 
     def delete_row(self, row):
@@ -1044,110 +1007,76 @@ class ScheduleManager(QtWidgets.QMainWindow):
         file_name, _ = QFileDialog.getOpenFileName(self, "从 SQLite 文件导入", "", "SQLite Files (*.db);;All Files (*)", options=options)
         if file_name:
             try:
-                # 首先检查源数据库的表结构
-                new_conn = sqlite3.connect(file_name)
-                new_cursor = new_conn.cursor()
-                
-                # 获取源数据库的表结构
-                new_cursor.execute("PRAGMA table_info(schedule)")
-                columns = [column[1] for column in new_cursor.fetchall()]
-                
-                # 检查必要的列是否存在
-                required_columns = ['student_name', 'course_name', 'credit', 'weekday', 'time_slot', 'classroom']
-                missing_columns = [col for col in required_columns if col not in columns]
-                
-                if missing_columns:
-                    raise Exception(f"源数据库缺少必要的列: {', '.join(missing_columns)}")
-                
-                # 清空目标数据库
                 cursor = self.db_connection.cursor()
                 cursor.execute("DELETE FROM schedule")
-                
-                # 导入数据
-                new_cursor.execute("""
-                    SELECT 
-                        student_name, 
-                        course_name, 
-                        credit, 
-                        weekday,
-                        time_slot, 
-                        classroom
-                    FROM schedule
-                """)
+                self.db_connection.commit()
+
+                new_conn = sqlite3.connect(file_name)
+                new_cursor = new_conn.cursor()
+                new_cursor.execute("SELECT student_name, course_name, credit, time_slot, classroom FROM schedule")
                 rows = new_cursor.fetchall()
-                
+
                 cursor.executemany("""
-                    INSERT INTO schedule 
-                    (student_name, course_name, credit, weekday, time_slot, classroom)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO schedule (student_name, course_name, credit, time_slot, classroom)
+                    VALUES (?, ?, ?, ?, ?)
                 """, rows)
-                
                 self.db_connection.commit()
                 new_conn.close()
-                
+
                 self.imported_file_path = file_name
                 self.update_status_label("sqlite")
                 self.load_schedule_into_table()
                 QMessageBox.information(self, "成功", "数据已从 SQLite 文件导入")
-                
-            except Exception as e:
+            except sqlite3.Error as e:
                 print(f"导入失败: {str(e)}")
                 QMessageBox.critical(self, "错误", f"导入失败: {str(e)}")
+            except Exception as e:
+                print(f"导入时出现未预料的错误: {str(e)}")
+                QMessageBox.critical(self, "错误", f"导入时出现未预料的错误: {str(e)}")
 
 
     def export_to_sqlite(self):
-        try:
-            # 保存当前表格数据到数据库
-            if not self.save_to_database():
-                raise Exception("保存当前数据失败")
-                
-            options = QFileDialog.Options()
-            file_name, _ = QFileDialog.getSaveFileName(self, "导出到 SQLite 文件", "", 
-                                                    "SQLite Files (*.db);;All Files (*)", options=options)
-            if file_name:
-                if not file_name.endswith('.db'):
-                    file_name += '.db'
-                    
-                # 创建新的数据库文件
+        # Save the current table data to the database
+        if not self.save_to_database():
+            QMessageBox.critical(self, "错误", "保存数据失败")
+            return
+
+        # Export the current database to a new SQLite file
+        options = QFileDialog.Options()
+        file_name, _ = QFileDialog.getSaveFileName(self, "导出至 SQLite 文件", "", "SQLite Files (*.db);;All Files (*)", options=options)
+        if file_name:
+            try:
+                # Connect to the new SQLite file
                 new_conn = sqlite3.connect(file_name)
                 new_cursor = new_conn.cursor()
-                
-                # 创建表结构
                 new_cursor.execute("""
                     CREATE TABLE IF NOT EXISTS schedule (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         student_name TEXT,
                         course_name TEXT,
-                        credit REAL,
-                        weekday TEXT,
+                        credit INTEGER,
                         time_slot TEXT,
-                        classroom TEXT,
-                        semester TEXT
+                        classroom TEXT
                     )
                 """)
-                
-                # 从当前数据库复制数据
+                new_conn.commit()
+
+                # Copy data from the current database to the new SQLite file
                 cursor = self.db_connection.cursor()
-                cursor.execute("""
-                    SELECT student_name, course_name, credit, weekday, time_slot, classroom
-                    FROM schedule
-                """)
+                cursor.execute("SELECT student_name, course_name, credit, time_slot, classroom FROM schedule")
                 rows = cursor.fetchall()
-                
                 new_cursor.executemany("""
-                    INSERT INTO schedule 
-                    (student_name, course_name, credit, weekday, time_slot, classroom)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO schedule (student_name, course_name, credit, time_slot, classroom)
+                    VALUES (?, ?, ?, ?, ?)
                 """, rows)
-                
                 new_conn.commit()
                 new_conn.close()
-                
-                QMessageBox.information(self, "成功", "数据已导出到 SQLite 文件")
-                
-        except Exception as e:
-            print(f"导出失败: {str(e)}")
-            QMessageBox.critical(self, "错误", f"导出失败: {str(e)}")
+                QMessageBox.information(self, "成功", "数据已导出至 SQLite 文件")
+            except sqlite3.Error as e:
+                QMessageBox.critical(self, "错误", f"导出失败: {str(e)}")
+            except Exception as e:
+                print(f"导出时出现未预料的错误: {str(e)}")
+                QMessageBox.critical(self, "错误", f"导出时出现未预料的错误: {str(e)}")
 
     def update_dropdowns(self):
         """更新下拉列表的内容"""
@@ -1162,20 +1091,20 @@ class ScheduleManager(QtWidgets.QMainWindow):
         self.course_list = [row[0] for row in cursor.fetchall()]
 
     def create_student_combobox(self, current_text=""):
-        """创建学生下拉框并添加班级自动填充功能"""
+        """创建学生下拉框"""
         combo = QComboBox()
-        combo.addItems(self.student_list)
+        combo.addItems([name.strip() for name in self.student_list])
         combo.setEditable(True)
-        combo.setCurrentText(current_text)
-        
-        completer = QCompleter(self.student_list)
+        combo.setCurrentText(current_text.strip())
+
+        completer = QCompleter(self.student_list, combo)
         completer.setCompletionMode(QCompleter.PopupCompletion)
-        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        completer.setCaseSensitivity(QtCore.Qt.CaseInsensitive)
         combo.setCompleter(completer)
-        
-        # 添加学生选择变化时的处理函数
-        combo.currentTextChanged.connect(lambda text: self.update_student_class(text, combo))
-        
+
+        # 添加信号连接
+        combo.currentTextChanged.connect(lambda text, c=combo: self.update_student_class(text, c))
+
         return combo
 
     def show_student_manager(self):
@@ -1427,18 +1356,19 @@ class CourseManager(QtWidgets.QDialog):
                     QMessageBox.critical(self, "错误", f"删除失败: {str(e)}")
 
     def create_course_combobox(self, current_text=""):
-        """创建课程下拉框并添加学分和周数自动填充功能"""
+        """创建课程下拉框"""
         combo = QComboBox()
         combo.addItems(self.course_list)
         combo.setEditable(True)
         combo.setCurrentText(current_text)
 
-        completer = QCompleter(self.course_list)
+        completer = QCompleter(self.course_list, combo)
         completer.setCompletionMode(QCompleter.PopupCompletion)
-        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        completer.setCaseSensitivity(QtCore.Qt.CaseInsensitive)
         combo.setCompleter(completer)
 
-        combo.currentTextChanged.connect(lambda text: self.update_course_info(text, combo))
+        # 添加信号连接
+        combo.currentTextChanged.connect(lambda text, c=combo: self.update_course_info(text, c))
 
         return combo
 
