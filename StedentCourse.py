@@ -12,14 +12,14 @@ import sqlite3
 class ScheduleManager(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
-        self.initUI()
         self.db_connection = self.connect_to_database()
         self.imported_file_path = None
-        self.student_list = []
-        self.course_list = []
-        self.time_slots = ["上午一段", "上午二段", "下午一段", "下午二段", "晚修"]
-        self.load_students()
+        self.student_list = []  # 添加学生列表属性
+        self.course_list = []   # 添加课程列表属性
+        self.initUI()
         self.load_courses()
+        self.update_dropdowns()  # 初始化时更新下拉列表
+        self.time_slots = ["上午一段", "上午二段", "下午一段", "下午二段", "晚修"]
 
     def initUI(self):
         self.setWindowTitle("学生课表管理程序")
@@ -42,9 +42,9 @@ class ScheduleManager(QtWidgets.QMainWindow):
         self.import_btn.setGeometry(50, 470, 200, 40)
         self.import_btn.clicked.connect(self.import_schedule)
 
-        self.template_btn = QtWidgets.QPushButton("生成课表模板", self)
-        self.template_btn.setGeometry(260, 470, 200, 40)
-        self.template_btn.clicked.connect(self.generate_template)
+        self.init_btn = QtWidgets.QPushButton("初始化学生与课程信息", self)
+        self.init_btn.setGeometry(260, 470, 200, 40)
+        self.init_btn.clicked.connect(self.initialize_data)
 
         self.export_sqlite_btn = QtWidgets.QPushButton("导出至SQLite", self)
         self.export_sqlite_btn.setGeometry(470, 470, 200, 40)
@@ -78,6 +78,136 @@ class ScheduleManager(QtWidgets.QMainWindow):
         self.course_manager = CourseManager(self.db_connection, self)
         self.course_manager.reload_courses_signal.connect(self.load_courses)
         self.course_manager.show()
+
+    def initialize_data(self):
+        """初始化学生与课程信息或导出课表"""
+        # 根据按钮文本决定执行的操作
+        if self.init_btn.text() == "导出课表":
+            self.export_to_excel()
+            return
+    
+        # 执行初始化操作
+        reply = QMessageBox.question(self, '确认初始化', 
+                                   '这将清空所有现有的学生和课程信息，确定要继续吗？',
+                                   QMessageBox.Yes | QMessageBox.No, 
+                                   QMessageBox.No)
+        
+        if reply == QMessageBox.Yes:
+            try:
+                cursor = self.db_connection.cursor()
+                
+                # 清空现有数据
+                cursor.execute("DELETE FROM schedule")
+                cursor.execute("DELETE FROM students")
+                cursor.execute("DELETE FROM courses")
+                
+                # 重置自增ID
+                cursor.execute("DELETE FROM sqlite_sequence WHERE name IN ('students', 'courses', 'schedule')")
+                
+                # 初始化默认学生
+                default_students = [
+                    ('张三', '计算机2101'),
+                    ('李四', '计算机2101'),
+                    ('王五', '计算机2102'),
+                    # ... 可以添加更多默认学生
+                ]
+                cursor.executemany("""
+                    INSERT INTO students (student_name, class_name)
+                    VALUES (?, ?)
+                """, default_students)
+                
+                # 初始化默认课程
+                default_courses = [
+                    ('高等数学', 4.0, '3-16'),
+                    ('线性代数', 3.0, '3-14'),
+                    ('大学物理', 4.0, '6-15'),
+                    ('Python编程技术', 2.5, '3-16'),
+                    ('思想道德与法治', 3.5, '9-14'),
+                ]
+                cursor.executemany("""
+                    INSERT INTO courses (course_name, credit, semester)
+                    VALUES (?, ?, ?)
+                """, default_courses)
+                
+                self.db_connection.commit()
+                
+                # 清空并重新加载表格
+                self.table_widget.setRowCount(0)
+                self.load_courses()
+                
+                QMessageBox.information(self, "成功", "学生与课程信息已初始化")
+                
+            except Exception as e:
+                self.db_connection.rollback()
+                QMessageBox.critical(self, "错误", f"初始化失败: {str(e)}")
+                return
+            
+            # 更新状态标签
+            self.status_label.setText("数据已初始化")
+            self.status_label.setStyleSheet("color: blue;")
+    
+    def export_to_excel(self):
+        """导出课表到Excel文件"""
+        try:
+            # 收集表格数据
+            data = {
+                '学生姓名': [],
+                '课程名称': [],
+                '学分': [],
+                '行课时间': [],
+                '教室': []
+            }
+            
+            # 从表格中获取数据
+            for row in range(self.table_widget.rowCount()):
+                # 获取学生姓名
+                student_combo = self.table_widget.cellWidget(row, 0)
+                data['学生姓名'].append(student_combo.currentText() if student_combo else '')
+                
+                # 获取课程名称
+                course_combo = self.table_widget.cellWidget(row, 1)
+                data['课程名称'].append(course_combo.currentText() if course_combo else '')
+                
+                # 获取学分
+                credit_edit = self.table_widget.cellWidget(row, 2)
+                data['学分'].append(credit_edit.text() if credit_edit else '')
+                
+                # 获取行课时间
+                time_combo = self.table_widget.cellWidget(row, 3)
+                data['行课时间'].append(time_combo.currentText() if time_combo else '')
+                
+                # 获取教室
+                classroom_edit = self.table_widget.cellWidget(row, 4)
+                classroom = classroom_edit.text() if classroom_edit else ''
+                # 移除'H'前缀用于导出
+                if classroom.startswith('H'):
+                    classroom = classroom[1:]
+                data['教室'].append(classroom)
+            
+            # 创建DataFrame
+            df = pd.DataFrame(data)
+            
+            # 选择保存位置
+            options = QFileDialog.Options()
+            file_name, _ = QFileDialog.getSaveFileName(
+                self,
+                "导出课表",
+                "",
+                "Excel Files (*.xlsx);;All Files (*)",
+                options=options
+            )
+            
+            if file_name:
+                # 如果文件名没有.xlsx后缀，添加它
+                if not file_name.endswith('.xlsx'):
+                    file_name += '.xlsx'
+                
+                # 导出到Excel
+                df.to_excel(file_name, index=False)
+                QMessageBox.information(self, "成功", "课表已成功导出")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"导出失败: {str(e)}")
 
     def connect_to_database(self):
         try:
@@ -166,13 +296,15 @@ class ScheduleManager(QtWidgets.QMainWindow):
                 QMessageBox.critical(self, "错误", f"导入失败: {str(e)}")
 
     def update_status_label(self, source):
-        if self.imported_file_path:
-            if source == "excel":
-                self.status_label.setText(f"检测到已经导入 {self.imported_file_path}")
-                self.status_label.setStyleSheet("color: green;")
-            elif source == "sqlite":
-                self.status_label.setText(f"检测到已导入 {self.imported_file_path}")
-                self.status_label.setStyleSheet("color: blue;")
+        if source == "excel":
+            self.status_label.setText(f"已导入: {self.imported_file_path}")
+            self.status_label.setStyleSheet("color: green;")
+        elif source == "sqlite":
+            self.status_label.setText("已从SQLite数据库导入")
+            self.status_label.setStyleSheet("color: blue;")
+        elif source == "initialized":
+            self.status_label.setText("数据已初始化")
+            self.status_label.setStyleSheet("color: blue;")
         else:
             self.status_label.setText("等待导入表格中")
             self.status_label.setStyleSheet("color: gray;")
@@ -208,20 +340,7 @@ class ScheduleManager(QtWidgets.QMainWindow):
                     self.table_widget.setCellWidget(row_position, column, line_edit)
                 else:
                     self.table_widget.setItem(row_position, column, QTableWidgetItem(str(data)))
-        self.template_btn.setText("导出课表")
-
-    def create_student_combobox(self, current_text=""):
-        combo = QComboBox()
-        combo.addItems(self.student_list)
-        combo.setEditable(True)
-        combo.setCurrentText(current_text)
-
-        completer = QCompleter(self.student_list, combo)
-        completer.setCompletionMode(QCompleter.PopupCompletion)
-        completer.setCaseSensitivity(QtCore.Qt.CaseInsensitive)
-        combo.setCompleter(completer)
-
-        return combo
+        self.init_btn.setText("导出课表")
 
     def create_course_combobox(self, current_text=""):
         combo = QComboBox()
@@ -293,7 +412,7 @@ class ScheduleManager(QtWidgets.QMainWindow):
             self.table_widget.removeRow(row)
         # Update template button text after deletion
         if self.table_widget.rowCount() == 0:
-            self.template_btn.setText("生成课表模板")
+            self.init_btn.setText("生成课表模板")
 
     def generate_template(self):
         # Check if table has data
@@ -484,15 +603,30 @@ class ScheduleManager(QtWidgets.QMainWindow):
                 QMessageBox.critical(self, "错误", f"导出失败: {str(e)}")
 
     def update_dropdowns(self):
+        """更新下拉列表的内容"""
         cursor = self.db_connection.cursor()
         
-        # Update student list
+        # 更新学生列表
         cursor.execute("SELECT student_name FROM students")
         self.student_list = [row[0] for row in cursor.fetchall()]
         
-        # Update course list
+        # 更新课程列表
         cursor.execute("SELECT course_name FROM courses")
         self.course_list = [row[0] for row in cursor.fetchall()]
+
+    def create_student_combobox(self, current_text=""):
+        """创建学生下拉框"""
+        combo = QComboBox()
+        combo.addItems(self.student_list)
+        combo.setEditable(True)
+        combo.setCurrentText(current_text)
+        
+        completer = QCompleter(self.student_list)
+        completer.setCompletionMode(QCompleter.PopupCompletion)
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        combo.setCompleter(completer)
+        
+        return combo
 
     def show_student_manager(self):
         self.student_manager = StudentManager(self.db_connection, self)
@@ -877,15 +1011,27 @@ class CourseManager(QtWidgets.QDialog):
             "义理论体系概论", "习近平新时代中国特色社会主义思想概论", "大学英语", 
             "创新创业教育基础", "TRIZ创新方法", "创业培训", "创新、发明与知识产权实践"
         ]
-
+    
         dialog = SelectCourseDialog(course_list)
         if dialog.exec_() == QDialog.Accepted:
             selected_course = dialog.selected_course
             if selected_course:
-                credit, ok = QInputDialog.getDouble(self, "添加课程", "请输入学分:", 0, 0, 100, 0.5)
+                credit, ok = QInputDialog.getDouble(
+                    self,           # parent
+                    "添加课程",      # title
+                    "请输入学分:",   # label
+                    0,             # default value
+                    0,             # minimum value
+                    100,           # maximum value
+                    1,             # decimals (整数)
+                    Qt.WindowFlags(),  # flags
+                    0.5            # step
+                )
                 if ok:
-                    semester, ok = QInputDialog.getText(self, "添加课程", "请输入周数\n(例如: 第1至17周):")
+                    semester, ok = QInputDialog.getText(self, "添加课程", "请输入周数:")
                     if ok:
+                        # 移除可能存在的"周"字后再保存
+                        semester = semester.rstrip('周')
                         try:
                             cursor = self.db_connection.cursor()
                             cursor.execute("""
